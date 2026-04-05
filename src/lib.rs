@@ -87,6 +87,24 @@ impl BlobVec {
         }
     }
 
+    pub fn get_ptr_of<T: 'static>(&self, index: usize) -> *const T {
+        dbg_assert_index!(self, index);
+        dbg_assert_type_id!(self, T);
+        unsafe {
+            let ptr = self.data.add(index * self.item_layout.size()) as *const T;
+            ptr
+        }
+    }
+
+    pub fn get_ptr_of_mut<T: 'static>(&mut self, index: usize) -> *mut T {
+        dbg_assert_index!(self, index);
+        dbg_assert_type_id!(self, T);
+        unsafe {
+            let ptr = self.data.add(index * self.item_layout.size()) as *mut T;
+            ptr
+        }
+    }
+
     pub unsafe fn get_unchecked<T: 'static>(&self, index: usize) -> &T {
         dbg_assert_index!(self, index);
         dbg_assert_type_id!(self, T);
