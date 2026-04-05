@@ -1,80 +1,189 @@
-use std::any::TypeId;
+use std::alloc::{Layout, alloc, dealloc, realloc};
+use std::any::{TypeId, type_name};
+use std::fmt::Debug;
 
+macro_rules! dbg_assert_index {
+    ($self:expr, $index:expr) => {
+        #[cfg(debug_assertions)]
+        debug_assert!(
+            $index < $self.len,
+            "BlobVec index (is {}) should be < len (is {})",
+            $index,
+            $self.len
+        );
+    };
+}
+
+macro_rules! dbg_assert_type_id {
+    ($self:expr, $T:ty) => {
+        #[cfg(debug_assertions)]
+        debug_assert_eq!(
+            $self.type_id,
+            TypeId::of::<$T>(),
+            "BlobVec type mismatch: expected {}, got {}",
+            $self.type_name,
+            type_name::<$T>()
+        );
+    };
+}
+
+#[derive(Debug)]
 pub struct BlobVec {
-    data: Vec<u8>,
-    type_id: TypeId,
-    elem_size: usize,
+    item_layout: Layout,
+    data: *mut u8,
+    len: usize,
+    capacity: usize,
     drop_fn: fn(*mut u8),
+
+    #[cfg(debug_assertions)]
+    type_id: TypeId,
+    #[cfg(debug_assertions)]
+    type_name: &'static str,
 }
 
 impl BlobVec {
+    // --- construction ---
     pub fn new<T: 'static>() -> Self {
         Self {
-            data: Vec::new(),
-            type_id: TypeId::of::<T>(),
-            elem_size: size_of::<T>(),
+            item_layout: Layout::new::<T>(),
+            data: std::ptr::NonNull::dangling().as_ptr(),
+            len: 0,
+            capacity: 0,
             drop_fn: |ptr| unsafe { std::ptr::drop_in_place(ptr as *mut T) },
+
+            #[cfg(debug_assertions)]
+            type_id: TypeId::of::<T>(),
+            #[cfg(debug_assertions)]
+            type_name: type_name::<T>(),
         }
     }
-    //
-    // fn grow(&mut self) {
-    //     let new_capacity = if self.capacity == 0 { 4 } else { self.capacity * 2 };
-    //     self.data.reserve(new_capacity - self.data.capacity());
-    // }
 
-    pub fn push<T: 'static>(&mut self, element: T) {
-        debug_assert_eq!(self.type_id, TypeId::of::<T>());
-        let bytes = unsafe {
-            std::slice::from_raw_parts(&element as *const T as *const u8, size_of::<T>())
-        };
-        self.data.extend_from_slice(bytes);
-        std::mem::forget(element);
+    pub fn with_capacity<T: 'static>(capacity: usize) -> Self {
+        let mut this = Self::new::<T>();
+        this.grow_to(capacity);
+        this
     }
 
-    pub fn get<T: 'static>(&self, index: usize) -> &T {
-        debug_assert_eq!(self.type_id, TypeId::of::<T>());
-        debug_assert!(index * self.elem_size < self.data.len());
-        unsafe { &*(self.data.as_ptr().add(index * self.elem_size) as *const T) }
-    }
-
-    pub fn swap_remove(&mut self, index: usize) {
-        debug_assert!(index * self.elem_size < self.data.len());
-        let buffer_ptr = self.data.as_mut_ptr();
+    // --- access ---
+    pub fn get<T: 'static>(&self, index: usize) -> Option<&T> {
+        dbg_assert_type_id!(self, T);
+        if index >= self.len {
+            return None;
+        }
         unsafe {
-            let elem_ptr = buffer_ptr.add(index * self.elem_size);
-            let last_ptr = buffer_ptr.add((self.data.len() - 1) * self.elem_size);
-            (self.drop_fn)(elem_ptr);
+            let ptr = self.data.add(index * self.item_layout.size()) as *const T;
+            Some(&*ptr)
+        }
+    }
 
-            if elem_ptr < last_ptr {
-                std::ptr::copy_nonoverlapping(last_ptr, elem_ptr, self.elem_size);
-            }
-            self.data.set_len(self.data.len() - self.elem_size);
+    pub fn get_mut<T: 'static>(&mut self, index: usize) -> Option<&mut T> {
+        dbg_assert_type_id!(self, T);
+        if index >= self.len {
+            return None;
+        }
+        unsafe {
+            let ptr = self.data.add(index * self.item_layout.size()) as *mut T;
+            Some(&mut *ptr)
         }
     }
 
     pub fn as_slice<T: 'static>(&self) -> &[T] {
-        debug_assert_eq!(self.type_id, TypeId::of::<T>());
-        unsafe {
-            std::slice::from_raw_parts(
-                self.data.as_ptr() as *const T,
-                self.data.len() / self.elem_size,
-            )
-        }
-    }
-
-    pub fn get_mut<T: 'static>(&mut self, index: usize) -> &mut T {
-        debug_assert_eq!(self.type_id, TypeId::of::<T>());
-        let offset = index * self.elem_size;
-        unsafe { &mut *(self.data.as_mut_ptr().add(offset) as *mut T) }
+        dbg_assert_type_id!(self, T);
+        unsafe { std::slice::from_raw_parts(self.data as *const T, self.len) }
     }
 
     pub fn as_slice_mut<T: 'static>(&mut self) -> &mut [T] {
-        debug_assert_eq!(self.type_id, TypeId::of::<T>());
+        dbg_assert_type_id!(self, T);
+        unsafe { std::slice::from_raw_parts_mut(self.data as *mut T, self.len) }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    // --- insertion ---
+    pub fn push<T: 'static>(&mut self, value: T) {
+        dbg_assert_type_id!(self, T);
+        if self.len == self.capacity {
+            self.grow();
+        }
         unsafe {
-            std::slice::from_raw_parts_mut(
-                self.data.as_mut_ptr() as *mut T,
-                self.data.len() / self.elem_size,
-            )
+            let dst = self.data.add(self.len * self.item_layout.size());
+            std::ptr::write(dst as *mut T, value);
+        }
+        self.len += 1;
+    }
+
+    // --- removal ---
+    pub fn swap_remove(&mut self, index: usize) {
+        dbg_assert_index!(self, index);
+        unsafe {
+            let size = self.item_layout.size();
+            let elem_ptr = self.data.add(index * size);
+            (self.drop_fn)(elem_ptr);
+
+            self.len -= 1;
+            if index != self.len {
+                let last_ptr = self.data.add(self.len * size);
+                std::ptr::copy_nonoverlapping(last_ptr, elem_ptr, size);
+            }
+        }
+    }
+
+    // --- private ---
+    fn grow(&mut self) {
+        let new_capacity = match self.capacity {
+            0 => 4,
+            n => n.checked_mul(2).expect("capacity overflow"),
+        };
+        self.grow_to(new_capacity);
+    }
+
+    fn grow_to(&mut self, new_capacity: usize) {
+        debug_assert!(new_capacity > self.capacity);
+        let item_size = self.item_layout.size();
+        let item_align = self.item_layout.align();
+        let new_layout = unsafe {
+            // SAFETY: we know that alignment is valid and size is a checked_mul of alignment
+            let size = item_size.checked_mul(new_capacity).unwrap();
+            Layout::from_size_align_unchecked(size, item_align)
+        };
+
+        self.data = unsafe {
+            if self.capacity == 0 {
+                alloc(new_layout)
+            } else {
+                // SAFETY: we already know that the old layout is valid
+                let size = item_size.unchecked_mul(self.capacity);
+                let old_layout = Layout::from_size_align_unchecked(size, item_align);
+                realloc(self.data, old_layout, new_layout.size())
+            }
+        };
+        self.capacity = new_capacity;
+    }
+}
+
+impl Drop for BlobVec {
+    fn drop(&mut self) {
+        if self.capacity > 0 {
+            let item_size = self.item_layout.size();
+            for i in 0..self.len {
+                unsafe {
+                    (self.drop_fn)(self.data.add(i * item_size));
+                }
+            }
+            unsafe {
+                // SAFETY: we know that the layout is valid
+                let layout = Layout::from_size_align_unchecked(
+                    item_size * self.capacity,
+                    self.item_layout.align(),
+                );
+                dealloc(self.data, layout);
+            }
         }
     }
 }
@@ -85,6 +194,21 @@ mod tests {
 
     #[test]
     fn main_test() {
-        assert_eq!(1, 1);
+        let mut vec = BlobVec::new::<u128>();
+        vec.push(123u128);
+        vec.push(456u128);
+        vec.push(789u128);
+        println!("{:?}", vec.as_slice::<u128>());
+
+        vec.swap_remove(0);
+        println!("{:?}", vec.as_slice::<u128>());
+
+        vec.push(999u128);
+        println!("{:?}", vec.as_slice::<u128>());
+
+        vec.swap_remove(0);
+        println!("{:?}", vec.as_slice::<u128>());
+
+        println!("{:?}", vec);
     }
 }
