@@ -43,7 +43,7 @@ pub struct BlobVec {
 
 impl BlobVec {
     // --- construction ---
-    pub fn new<T: 'static>() -> Self {
+    pub fn new<T: Sized + 'static>() -> Self {
         Self {
             item_layout: Layout::new::<T>(),
             data: std::ptr::NonNull::dangling().as_ptr(),
@@ -58,14 +58,14 @@ impl BlobVec {
         }
     }
 
-    pub fn with_capacity<T: 'static>(capacity: usize) -> Self {
+    pub fn with_capacity<T: Sized + 'static>(capacity: usize) -> Self {
         let mut this = Self::new::<T>();
         this.grow_to(capacity);
         this
     }
 
     // --- access ---
-    pub fn get<T: 'static>(&self, index: usize) -> Option<&T> {
+    pub fn get<T: Sized + 'static>(&self, index: usize) -> Option<&T> {
         dbg_assert_type_id!(self, T);
         if index >= self.len {
             return None;
@@ -76,7 +76,7 @@ impl BlobVec {
         }
     }
 
-    pub fn get_mut<T: 'static>(&mut self, index: usize) -> Option<&mut T> {
+    pub fn get_mut<T: Sized + 'static>(&mut self, index: usize) -> Option<&mut T> {
         dbg_assert_type_id!(self, T);
         if index >= self.len {
             return None;
@@ -87,7 +87,7 @@ impl BlobVec {
         }
     }
 
-    pub fn get_ptr_of<T: 'static>(&self, index: usize) -> *const T {
+    pub fn get_ptr_of<T: Sized + 'static>(&self, index: usize) -> *const T {
         dbg_assert_index!(self, index);
         dbg_assert_type_id!(self, T);
         unsafe {
@@ -96,7 +96,7 @@ impl BlobVec {
         }
     }
 
-    pub fn get_ptr_of_mut<T: 'static>(&mut self, index: usize) -> *mut T {
+    pub fn get_ptr_of_mut<T: Sized + 'static>(&mut self, index: usize) -> *mut T {
         dbg_assert_index!(self, index);
         dbg_assert_type_id!(self, T);
         unsafe {
@@ -105,7 +105,7 @@ impl BlobVec {
         }
     }
 
-    pub unsafe fn get_unchecked<T: 'static>(&self, index: usize) -> &T {
+    pub unsafe fn get_unchecked<T: Sized + 'static>(&self, index: usize) -> &T {
         dbg_assert_index!(self, index);
         dbg_assert_type_id!(self, T);
         unsafe {
@@ -114,7 +114,7 @@ impl BlobVec {
         }
     }
 
-    pub unsafe fn get_unchecked_mut<T: 'static>(&mut self, index: usize) -> &mut T {
+    pub unsafe fn get_unchecked_mut<T: Sized + 'static>(&mut self, index: usize) -> &mut T {
         dbg_assert_index!(self, index);
         dbg_assert_type_id!(self, T);
         unsafe {
@@ -123,12 +123,12 @@ impl BlobVec {
         }
     }
 
-    pub fn as_slice<T: 'static>(&self) -> &[T] {
+    pub fn as_slice<T: Sized + 'static>(&self) -> &[T] {
         dbg_assert_type_id!(self, T);
         unsafe { std::slice::from_raw_parts(self.data as *const T, self.len) }
     }
 
-    pub fn as_slice_mut<T: 'static>(&mut self) -> &mut [T] {
+    pub fn as_slice_mut<T: Sized + 'static>(&mut self) -> &mut [T] {
         dbg_assert_type_id!(self, T);
         unsafe { std::slice::from_raw_parts_mut(self.data as *mut T, self.len) }
     }
@@ -142,7 +142,7 @@ impl BlobVec {
     }
 
     // --- insertion ---
-    pub fn push<T: 'static>(&mut self, value: T) {
+    pub fn push<T: Sized + 'static>(&mut self, value: T) {
         dbg_assert_type_id!(self, T);
         if self.len == self.capacity {
             self.grow();
