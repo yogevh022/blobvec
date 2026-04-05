@@ -87,6 +87,24 @@ impl BlobVec {
         }
     }
 
+    pub unsafe fn get_unchecked<T: 'static>(&self, index: usize) -> &T {
+        dbg_assert_index!(self, index);
+        dbg_assert_type_id!(self, T);
+        unsafe {
+            let ptr = self.data.add(index * self.item_layout.size()) as *const T;
+            &*ptr
+        }
+    }
+
+    pub unsafe fn get_unchecked_mut<T: 'static>(&mut self, index: usize) -> &mut T {
+        dbg_assert_index!(self, index);
+        dbg_assert_type_id!(self, T);
+        unsafe {
+            let ptr = self.data.add(index * self.item_layout.size()) as *mut T;
+            &mut *ptr
+        }
+    }
+
     pub fn as_slice<T: 'static>(&self) -> &[T] {
         dbg_assert_type_id!(self, T);
         unsafe { std::slice::from_raw_parts(self.data as *const T, self.len) }
@@ -138,7 +156,7 @@ impl BlobVec {
     fn grow(&mut self) {
         let new_capacity = match self.capacity {
             0 => 4,
-            n => n.checked_mul(2).expect("capacity overflow"),
+            n => n.checked_mul(2).expect("BlobVec Capacity overflow"),
         };
         self.grow_to(new_capacity);
     }
@@ -171,17 +189,14 @@ impl Drop for BlobVec {
     fn drop(&mut self) {
         if self.capacity > 0 {
             let item_size = self.item_layout.size();
+            let item_align = self.item_layout.align();
             for i in 0..self.len {
-                unsafe {
-                    (self.drop_fn)(self.data.add(i * item_size));
-                }
+                unsafe { (self.drop_fn)(self.data.add(i * item_size)) };
             }
             unsafe {
                 // SAFETY: we know that the layout is valid
-                let layout = Layout::from_size_align_unchecked(
-                    item_size * self.capacity,
-                    self.item_layout.align(),
-                );
+                let layout =
+                    Layout::from_size_align_unchecked(item_size * self.capacity, item_align);
                 dealloc(self.data, layout);
             }
         }
