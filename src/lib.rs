@@ -64,6 +64,27 @@ impl BlobVec {
         this
     }
 
+    /// creates a new empty BlobVec with the same type as the original
+    pub fn clone_empty(&self) -> Self {
+        let this = Self {
+            item_layout: self.item_layout,
+            data: std::ptr::NonNull::dangling().as_ptr(),
+            len: 0,
+            capacity: 0,
+            drop_fn: self.drop_fn,
+
+            #[cfg(debug_assertions)]
+            type_id: self.type_id,
+            #[cfg(debug_assertions)]
+            type_name: self.type_name,
+        };
+        this
+    }
+    
+    pub fn reserve(&mut self, additional: usize) {
+        self.grow_to(self.capacity.checked_add(additional).unwrap());
+    }
+
     // --- access ---
     pub fn get<T: Sized + 'static>(&self, index: usize) -> Option<&T> {
         dbg_assert_type_id!(self, T);
