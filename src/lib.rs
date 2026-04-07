@@ -175,6 +175,17 @@ impl BlobVec {
         self.len += 1;
     }
 
+    /// pushes an uninitialized item, returns its ptr, performs no ptr writes.
+    /// initializing the item is the users' responsibility
+    pub unsafe fn push_uninit(&mut self) -> *mut u8 {
+        if self.len == self.capacity {
+            self.grow();
+        }
+        let ptr = unsafe { self.data.add(self.len * self.item_layout.size()) };
+        self.len += 1;
+        ptr
+    }
+
     // --- removal ---
     pub fn swap_remove(&mut self, index: usize) {
         dbg_assert_index!(self, index);
