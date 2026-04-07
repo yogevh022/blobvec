@@ -181,6 +181,11 @@ impl BlobVec {
         if self.len == self.capacity {
             self.grow();
         }
+        unsafe { self.push_uninit_unchecked() }
+    }
+
+    /// unchecked version of `push_uninit`, performs no bounds checks.
+    pub unsafe fn push_uninit_unchecked(&mut self) -> *mut u8 {
         let ptr = unsafe { self.data.add(self.len * self.item_layout.size()) };
         self.len += 1;
         ptr
