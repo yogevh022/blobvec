@@ -209,7 +209,7 @@ impl BlobVec {
 
     /// Swap-removes the element at `index`, writing its bytes into `dst`.
     /// `dst` must point to allocation of at least `self.item_layout.size()` bytes.
-    pub fn swap_remove_into(&mut self, index: usize, dst: *mut u8) {
+    pub unsafe fn swap_remove_into(&mut self, index: usize, dst: *mut u8) {
         dbg_assert_index!(self, index);
         unsafe {
             let size = self.item_layout.size();
