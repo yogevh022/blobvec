@@ -34,7 +34,6 @@ pub struct BlobVec {
     len: usize,
     capacity: usize,
     drop_fn: fn(*mut u8),
-    copy_fn: fn(&mut BlobVec, *mut u8),
 
     #[cfg(debug_assertions)]
     type_id: TypeId,
@@ -51,7 +50,6 @@ impl BlobVec {
             len: 0,
             capacity: 0,
             drop_fn: |ptr| unsafe { std::ptr::drop_in_place(ptr as *mut T) },
-            copy_fn: |other, ptr| unsafe { other.push((ptr as *mut T).read()) },
 
             #[cfg(debug_assertions)]
             type_id: TypeId::of::<T>(),
@@ -74,7 +72,6 @@ impl BlobVec {
             len: 0,
             capacity: 0,
             drop_fn: self.drop_fn,
-            copy_fn: self.copy_fn,
 
             #[cfg(debug_assertions)]
             type_id: self.type_id,
@@ -194,13 +191,15 @@ impl BlobVec {
         }
     }
 
-    /// like swap_remove, but instead of dropping the element, copies it into another BlobVec
-    pub fn swap_pop_into(&mut self, other: &mut BlobVec, index: usize) {
+    /// Swap-removes the element at `index`, writing its bytes into `dst`.
+    /// `dst` must point to allocation of at least `self.item_layout.size()` bytes.
+    pub fn swap_remove_into(&mut self, index: usize, dst: *mut u8) {
         dbg_assert_index!(self, index);
         unsafe {
             let size = self.item_layout.size();
             let elem_ptr = self.data.add(index * size);
-            (self.copy_fn)(other, elem_ptr);
+
+            std::ptr::copy_nonoverlapping(elem_ptr, dst, size);
 
             self.len -= 1;
             if index != self.len {
