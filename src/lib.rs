@@ -162,6 +162,16 @@ impl BlobVec {
         self.len
     }
 
+    #[cfg(debug_assertions)]
+    pub fn type_id(&self) -> TypeId {
+        self.type_id
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn type_name(&self) -> &'static str {
+        self.type_name
+    }
+
     // --- insertion ---
     pub fn push<T: Sized + 'static>(&mut self, value: T) {
         dbg_assert_type_id!(self, T);
