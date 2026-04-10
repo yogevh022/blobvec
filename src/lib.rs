@@ -18,21 +18,18 @@ macro_rules! dbg_assert_type_id {
     ($self:expr, $T:ty) => {
         #[cfg(debug_assertions)]
         debug_assert_eq!(
-            $self.type_id,
+            $self.meta.type_id,
             TypeId::of::<$T>(),
             "BlobVec type mismatch: expected {}, got {}",
-            $self.type_name,
+            $self.meta.type_name,
             type_name::<$T>()
         );
     };
 }
 
-#[derive(Debug)]
-pub struct BlobVec {
+#[derive(Debug, Copy, Clone)]
+pub struct BlobVecMeta {
     item_layout: Layout,
-    data: *mut u8,
-    len: usize,
-    capacity: usize,
     drop_fn: fn(*mut u8),
 
     #[cfg(debug_assertions)]
@@ -41,20 +38,36 @@ pub struct BlobVec {
     type_name: &'static str,
 }
 
-impl BlobVec {
-    // --- construction ---
+impl BlobVecMeta {
     pub fn new<T: Sized + 'static>() -> Self {
         Self {
             item_layout: Layout::new::<T>(),
-            data: std::ptr::NonNull::dangling().as_ptr(),
-            len: 0,
-            capacity: 0,
             drop_fn: |ptr| unsafe { std::ptr::drop_in_place(ptr as *mut T) },
 
             #[cfg(debug_assertions)]
             type_id: TypeId::of::<T>(),
             #[cfg(debug_assertions)]
             type_name: type_name::<T>(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct BlobVec {
+    meta: BlobVecMeta,
+    data: *mut u8,
+    len: usize,
+    capacity: usize,
+}
+
+impl BlobVec {
+    // --- construction ---
+    pub fn new<T: Sized + 'static>() -> Self {
+        Self {
+            meta: BlobVecMeta::new::<T>(),
+            data: std::ptr::NonNull::dangling().as_ptr(),
+            len: 0,
+            capacity: 0,
         }
     }
 
@@ -67,16 +80,10 @@ impl BlobVec {
     /// creates a new empty BlobVec with the same type as the original
     pub fn clone_empty(&self) -> Self {
         let this = Self {
-            item_layout: self.item_layout,
+            meta: self.meta,
             data: std::ptr::NonNull::dangling().as_ptr(),
             len: 0,
             capacity: 0,
-            drop_fn: self.drop_fn,
-
-            #[cfg(debug_assertions)]
-            type_id: self.type_id,
-            #[cfg(debug_assertions)]
-            type_name: self.type_name,
         };
         this
     }
@@ -92,7 +99,7 @@ impl BlobVec {
             return None;
         }
         unsafe {
-            let ptr = self.data.add(index * self.item_layout.size()) as *const T;
+            let ptr = self.data.add(index * self.meta.item_layout.size()) as *const T;
             Some(&*ptr)
         }
     }
@@ -103,7 +110,7 @@ impl BlobVec {
             return None;
         }
         unsafe {
-            let ptr = self.data.add(index * self.item_layout.size()) as *mut T;
+            let ptr = self.data.add(index * self.meta.item_layout.size()) as *mut T;
             Some(&mut *ptr)
         }
     }
@@ -112,7 +119,7 @@ impl BlobVec {
         dbg_assert_index!(self, index);
         dbg_assert_type_id!(self, T);
         unsafe {
-            let ptr = self.data.add(index * self.item_layout.size()) as *const T;
+            let ptr = self.data.add(index * self.meta.item_layout.size()) as *const T;
             ptr
         }
     }
@@ -121,7 +128,7 @@ impl BlobVec {
         dbg_assert_index!(self, index);
         dbg_assert_type_id!(self, T);
         unsafe {
-            let ptr = self.data.add(index * self.item_layout.size()) as *mut T;
+            let ptr = self.data.add(index * self.meta.item_layout.size()) as *mut T;
             ptr
         }
     }
@@ -130,7 +137,7 @@ impl BlobVec {
         dbg_assert_index!(self, index);
         dbg_assert_type_id!(self, T);
         unsafe {
-            let ptr = self.data.add(index * self.item_layout.size()) as *const T;
+            let ptr = self.data.add(index * self.meta.item_layout.size()) as *const T;
             &*ptr
         }
     }
@@ -139,7 +146,7 @@ impl BlobVec {
         dbg_assert_index!(self, index);
         dbg_assert_type_id!(self, T);
         unsafe {
-            let ptr = self.data.add(index * self.item_layout.size()) as *mut T;
+            let ptr = self.data.add(index * self.meta.item_layout.size()) as *mut T;
             &mut *ptr
         }
     }
@@ -164,12 +171,12 @@ impl BlobVec {
 
     #[cfg(debug_assertions)]
     pub fn type_id(&self) -> TypeId {
-        self.type_id
+        self.meta.type_id
     }
 
     #[cfg(debug_assertions)]
     pub fn type_name(&self) -> &'static str {
-        self.type_name
+        self.meta.type_name
     }
 
     // --- insertion ---
@@ -179,7 +186,7 @@ impl BlobVec {
             self.grow();
         }
         unsafe {
-            let dst = self.data.add(self.len * self.item_layout.size());
+            let dst = self.data.add(self.len * self.meta.item_layout.size());
             std::ptr::write(dst as *mut T, value);
         }
         self.len += 1;
@@ -196,7 +203,7 @@ impl BlobVec {
 
     /// unchecked version of `push_uninit`, performs no bounds checks.
     pub unsafe fn push_uninit_unchecked(&mut self) -> *mut u8 {
-        let ptr = unsafe { self.data.add(self.len * self.item_layout.size()) };
+        let ptr = unsafe { self.data.add(self.len * self.meta.item_layout.size()) };
         self.len += 1;
         ptr
     }
@@ -205,9 +212,9 @@ impl BlobVec {
     pub fn swap_remove(&mut self, index: usize) {
         dbg_assert_index!(self, index);
         unsafe {
-            let size = self.item_layout.size();
+            let size = self.meta.item_layout.size();
             let elem_ptr = self.data.add(index * size);
-            (self.drop_fn)(elem_ptr);
+            (self.meta.drop_fn)(elem_ptr);
 
             self.len -= 1;
             if index != self.len {
@@ -218,11 +225,11 @@ impl BlobVec {
     }
 
     /// Swap-removes the element at `index`, writing its bytes into `dst`.
-    /// `dst` must point to allocation of at least `self.item_layout.size()` bytes.
+    /// `dst` must point to allocation of at least `self.meta.item_layout.size()` bytes.
     pub unsafe fn swap_remove_into(&mut self, index: usize, dst: *mut u8) {
         dbg_assert_index!(self, index);
         unsafe {
-            let size = self.item_layout.size();
+            let size = self.meta.item_layout.size();
             let elem_ptr = self.data.add(index * size);
 
             std::ptr::copy_nonoverlapping(elem_ptr, dst, size);
@@ -246,8 +253,8 @@ impl BlobVec {
 
     fn grow_to(&mut self, new_capacity: usize) {
         debug_assert!(new_capacity > self.capacity);
-        let item_size = self.item_layout.size();
-        let item_align = self.item_layout.align();
+        let item_size = self.meta.item_layout.size();
+        let item_align = self.meta.item_layout.align();
         let new_layout = unsafe {
             // SAFETY: we know that alignment is valid and size is a checked_mul of alignment
             let size = item_size.checked_mul(new_capacity).unwrap();
@@ -271,10 +278,10 @@ impl BlobVec {
 impl Drop for BlobVec {
     fn drop(&mut self) {
         if self.capacity > 0 {
-            let item_size = self.item_layout.size();
-            let item_align = self.item_layout.align();
+            let item_size = self.meta.item_layout.size();
+            let item_align = self.meta.item_layout.align();
             for i in 0..self.len {
-                unsafe { (self.drop_fn)(self.data.add(i * item_size)) };
+                unsafe { (self.meta.drop_fn)(self.data.add(i * item_size)) };
             }
             unsafe {
                 // SAFETY: we know that the layout is valid
