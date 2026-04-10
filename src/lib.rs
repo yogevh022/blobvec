@@ -52,12 +52,7 @@ impl BlobVecMeta {
     }
 
     pub fn instantiate(&self) -> BlobVec {
-        BlobVec {
-            meta: *self,
-            data: std::ptr::NonNull::dangling().as_ptr(),
-            len: 0,
-            capacity: 0,
-        }
+        BlobVec::from_meta(*self)
     }
 }
 
@@ -72,12 +67,7 @@ pub struct BlobVec {
 impl BlobVec {
     // --- construction ---
     pub fn new<T: Sized + 'static>() -> Self {
-        Self {
-            meta: BlobVecMeta::new::<T>(),
-            data: std::ptr::NonNull::dangling().as_ptr(),
-            len: 0,
-            capacity: 0,
-        }
+        Self::from_meta(BlobVecMeta::new::<T>())
     }
 
     pub fn with_capacity<T: Sized + 'static>(capacity: usize) -> Self {
@@ -86,15 +76,13 @@ impl BlobVec {
         this
     }
 
-    /// creates a new empty BlobVec with the same type as the original
-    pub fn clone_empty(&self) -> Self {
-        let this = Self {
-            meta: self.meta,
+    pub fn from_meta(meta: BlobVecMeta) -> Self {
+        Self {
+            meta,
             data: std::ptr::NonNull::dangling().as_ptr(),
             len: 0,
             capacity: 0,
-        };
-        this
+        }
     }
 
     pub fn reserve(&mut self, additional: usize) {
@@ -178,6 +166,10 @@ impl BlobVec {
         self.len
     }
 
+    pub fn meta(&self) -> BlobVecMeta {
+        self.meta
+    }
+
     #[cfg(debug_assertions)]
     pub fn type_id(&self) -> TypeId {
         self.meta.type_id
@@ -199,6 +191,22 @@ impl BlobVec {
             std::ptr::write(dst as *mut T, value);
         }
         self.len += 1;
+    }
+
+    /// pushes item from ptr, ptr must be a valid ptr to an item of type T
+    pub unsafe fn push_from_ptr(&mut self, src: *const u8) {
+        if self.len == self.capacity {
+            self.grow();
+        }
+        unsafe { self.push_from_ptr_unchecked(src) };
+    }
+
+    /// unchecked version of `push_from_ptr`, performs no bounds checks.
+    pub unsafe fn push_from_ptr_unchecked(&mut self, src: *const u8) {
+        unsafe {
+            let dst = self.push_uninit_unchecked();
+            std::ptr::copy_nonoverlapping(src, dst, self.meta.item_layout.size());
+        }
     }
 
     /// pushes an uninitialized item, returns its ptr, performs no ptr writes.
