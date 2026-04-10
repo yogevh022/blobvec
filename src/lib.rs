@@ -206,6 +206,7 @@ impl BlobVec {
         unsafe {
             let dst = self.push_uninit_unchecked();
             std::ptr::copy_nonoverlapping(src, dst, self.meta.item_layout.size());
+            dealloc(src as *mut u8, self.meta.item_layout);
         }
     }
 
