@@ -193,7 +193,7 @@ impl BlobVec {
         self.len += 1;
     }
 
-    /// pushes item from ptr, ptr must be a valid ptr to an item of type T
+    /// pushes item from ptr, ptr must be a valid ptr to an item of type T, deallocates the ptr after pushing.
     pub unsafe fn push_from_ptr(&mut self, src: *const u8) {
         if self.len == self.capacity {
             self.grow();
