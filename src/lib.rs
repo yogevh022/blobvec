@@ -50,6 +50,15 @@ impl BlobVecMeta {
             type_name: type_name::<T>(),
         }
     }
+
+    pub fn instantiate(&self) -> BlobVec {
+        BlobVec {
+            meta: *self,
+            data: std::ptr::NonNull::dangling().as_ptr(),
+            len: 0,
+            capacity: 0,
+        }
+    }
 }
 
 #[derive(Debug)]
