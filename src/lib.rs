@@ -27,6 +27,12 @@ macro_rules! dbg_assert_type_id {
     };
 }
 
+unsafe fn safe_dealloc(ptr: *mut u8, layout: Layout) {
+    if layout.size() > 0 {
+        unsafe { dealloc(ptr, layout) };
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
 pub struct BlobVecMeta {
     item_layout: Layout,
@@ -206,7 +212,7 @@ impl BlobVec {
         unsafe {
             let dst = self.push_uninit_unchecked();
             std::ptr::copy_nonoverlapping(src, dst, self.meta.item_layout.size());
-            dealloc(src as *mut u8, self.meta.item_layout);
+            safe_dealloc(src as *mut u8, self.meta.item_layout);
         }
     }
 
@@ -305,7 +311,7 @@ impl Drop for BlobVec {
                 // SAFETY: we know that the layout is valid
                 let layout =
                     Layout::from_size_align_unchecked(item_size * self.capacity, item_align);
-                dealloc(self.data, layout);
+                safe_dealloc(self.data, layout);
             }
         }
     }
