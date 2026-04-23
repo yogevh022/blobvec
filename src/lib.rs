@@ -216,6 +216,14 @@ impl BlobVec {
         }
     }
 
+    /// unchecked version of `push_from_ptr`, performs no bounds checks, and does not deallocate the ptr.
+    pub unsafe fn push_from_ptr_unchecked_no_dealloc(&mut self, src: *const u8) {
+        unsafe {
+            let dst = self.push_uninit_unchecked();
+            std::ptr::copy_nonoverlapping(src, dst, self.meta.item_layout.size());
+        }
+    }
+
     /// pushes an uninitialized item, returns its ptr, performs no ptr writes.
     /// initializing the item is the users' responsibility
     pub unsafe fn push_uninit(&mut self) -> *mut u8 {
